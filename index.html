@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <!-- Ensure proper scaling on mobile devices -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Start Animation</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: black;
+      height: 100%;
+    }
+    canvas {
+      display: block;
+      background: black;
+    }
+    /* Style for the start button */
+    #startButton {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      padding: 20px 40px;
+      font-size: 24px;
+      border: none;
+      background: white;
+      color: black;
+      cursor: pointer;
+      border-radius: 10px;
+      z-index: 10;
+    }
+  </style>
+</head>
+<body>
+  <!-- The full-screen canvas -->
+  <canvas id="canvas"></canvas>
+  <!-- The start button -->
+  <button id="startButton">(:</button>
+
+  <script>
+    // ----- Vector helper functions -----
+    function add(v1, v2) {
+      return { x: v1.x + v2.x, y: v1.y + v2.y };
+    }
+    function sub(v1, v2) {
+      return { x: v1.x - v2.x, y: v1.y - v2.y };
+    }
+    function mul(v, scalar) {
+      return { x: v.x * scalar, y: v.y * scalar };
+    }
+    function dot(v1, v2) {
+      return v1.x * v2.x + v1.y * v2.y;
+    }
+    function length(v) {
+      return Math.sqrt(v.x * v.x + v.y * v.y);
+    }
+    function normalize(v) {
+      var len = length(v);
+      return { x: v.x / len, y: v.y / len };
+    }
+
+    // ----- Polygon utilities -----
+    // Returns an array of vertices for a regular polygon with n sides,
+    // radius r, and starting angle offset.
+    function createPolygon(n, r, startAngle) {
+      var vertices = [];
+      for (var i = 0; i < n; i++) {
+        var angle = startAngle + (i * 2 * Math.PI) / n;
+        vertices.push({ x: r * Math.cos(angle), y: r * Math.sin(angle) });
+      }
+      return vertices;
+    }
+    // Compute inward unit normals for each polygon edge.
+    function computeNormals(vertices) {
+      var normals = [];
+      var n = vertices.length;
+      for (var i = 0; i < n; i++) {
+        var current = vertices[i];
+        var next = vertices[(i + 1) % n];
+        var edge = sub(next, current);
+        // Two possible perpendicular directions:
+        var cand1 = normalize({ x: edge.y, y: -edge.x });
+        var cand2 = normalize({ x: -edge.y, y: edge.x });
+        // Choose the one that points toward the center (0,0)
+        var mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
+        var toCenter = mul(mid, -1);
+        normals.push(dot(cand1, toCenter) > dot(cand2, toCenter) ? cand1 : cand2);
+      }
+      return normals;
+    }
+
+    // ----- Canvas and Shape Setup -----
+    var canvas = document.getElementById("canvas");
+    var ctx = canvas.getContext("2d");
+
+    // Each shape will have its own polygon and an internal bouncing ball.
+    var shapes = [
+      {
+        type: "triangle",
+        center: { x: 0, y: 0 }, // set later on resize
+        scale: 0,
+        rotation: 0,
+        rotationSpeed: 0.5, // radians per second
+        vertices: [],
+        normals: [],
+        ball: {
+          pos: { x: 0, y: 0 }, // local coordinates
+          vel: { x: 0, y: 0 },
+          radius: 0
+        }
+      },
+      {
+        type: "square",
+        center: { x: 0, y: 0 },
+        scale: 0,
+        rotation: 0,
+        rotationSpeed: 1.0,
+        vertices: [],
+        normals: [],
+        ball: {
+          pos: { x: 0, y: 0 },
+          vel: { x: 0, y: 0 },
+          radius: 0
+        }
+      },
+      {
+        type: "hexagon",
+        center: { x: 0, y: 0 },
+        scale: 0,
+        rotation: 0,
+        rotationSpeed: -0.7,
+        vertices: [],
+        normals: [],
+        ball: {
+          pos: { x: 0, y: 0 },
+          vel: { x: 0, y: 0 },
+          radius: 0
+        }
+      }
+    ];
+
+    // On resize, adjust canvas dimensions and layout shapes.
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      var sectionHeight = canvas.height / 3;
+      var sectionWidth = canvas.width;
+      // Use 40% of the smaller dimension to set the polygon “radius”
+      var scale = 0.4 * Math.min(sectionWidth, sectionHeight);
+
+      // Update each shape’s center and scale.
+      shapes[0].center = { x: canvas.width / 2, y: sectionHeight / 2 };
+      shapes[1].center = { x: canvas.width / 2, y: sectionHeight / 2 + sectionHeight };
+      shapes[2].center = { x: canvas.width / 2, y: sectionHeight / 2 + 2 * sectionHeight };
+
+      shapes.forEach(function(shape) {
+        shape.scale = scale;
+        // Create vertices based on shape type.
+        if (shape.type === "triangle") {
+          shape.vertices = createPolygon(3, scale, -Math.PI / 2);
+        } else if (shape.type === "square") {
+          shape.vertices = createPolygon(4, scale, Math.PI / 4);
+        } else if (shape.type === "hexagon") {
+          shape.vertices = createPolygon(6, scale, 0);
+        }
+        shape.normals = computeNormals(shape.vertices);
+        // Ball radius is 10% of the polygon’s scale.
+        shape.ball.radius = scale * 0.1;
+        // Initialize ball position in local coordinates.
+        shape.ball.pos = { x: 0, y: 0 };
+      });
+    }
+    window.addEventListener("resize", resize);
+    resize();
+
+    // Initialize each ball with a random velocity (in local coordinates).
+    shapes.forEach(function(shape) {
+      var speed = shape.scale * 0.7; // adjust as desired
+      var angle = Math.random() * 2 * Math.PI;
+      shape.ball.vel = { x: speed * Math.cos(angle), y: speed * Math.sin(angle) };
+    });
+
+    // ----- Simulation Loop -----
+    var lastTime = 0;
+    function animate(time) {
+      var dt = (time - lastTime) / 1000; // delta time in seconds
+      lastTime = time;
+      update(dt);
+      draw();
+      requestAnimationFrame(animate);
+    }
+
+    // Update ball positions and rotate shapes.
+    function update(dt) {
+      shapes.forEach(function(shape) {
+        // Update ball position (in local coordinates).
+        shape.ball.pos.x += shape.ball.vel.x * dt;
+        shape.ball.pos.y += shape.ball.vel.y * dt;
+
+        // Check for collisions against each polygon edge.
+        for (var iter = 0; iter < 3; iter++) {
+          var collided = false;
+          for (var i = 0; i < shape.vertices.length; i++) {
+            var vertex = shape.vertices[i];
+            var n = shape.normals[i];
+            // Compute the signed distance from ball center to the edge.
+            var diff = sub(shape.ball.pos, vertex);
+            var dist = dot(diff, n);
+            if (dist < shape.ball.radius) {
+              // Reflect velocity only if moving into the edge.
+              if (dot(shape.ball.vel, n) < 0) {
+                var vn = dot(shape.ball.vel, n);
+                shape.ball.vel.x -= 2 * vn * n.x;
+                shape.ball.vel.y -= 2 * vn * n.y;
+              }
+              // Push the ball out so that it just touches the edge.
+              var penetration = shape.ball.radius - dist;
+              shape.ball.pos = add(shape.ball.pos, mul(n, penetration));
+              collided = true;
+            }
+          }
+          if (!collided) break;
+        }
+        // Update the polygon’s rotation.
+        shape.rotation += shape.rotationSpeed * dt;
+      });
+    }
+
+    // Draw the shapes and balls.
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      shapes.forEach(function(shape) {
+        ctx.save();
+        // Move to the shape’s center.
+        ctx.translate(shape.center.x, shape.center.y);
+        // Apply the current rotation.
+        ctx.rotate(shape.rotation);
+
+        // Draw the polygon (white outline).
+        ctx.beginPath();
+        ctx.moveTo(shape.vertices[0].x, shape.vertices[0].y);
+        for (var i = 1; i < shape.vertices.length; i++) {
+          ctx.lineTo(shape.vertices[i].x, shape.vertices[i].y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw the ball (red circle).
+        ctx.beginPath();
+        ctx.arc(shape.ball.pos.x, shape.ball.pos.y, shape.ball.radius, 0, 2 * Math.PI);
+        ctx.fillStyle = "red";
+        ctx.fill();
+
+        ctx.restore();
+      });
+    }
+
+    // ----- Start Button Logic -----
+    // Wait until the button is clicked to start the animation.
+    document.getElementById("startButton").addEventListener("click", function() {
+      // Hide the button.
+      this.style.display = "none";
+      // Set lastTime and start the animation loop.
+      lastTime = performance.now();
+      requestAnimationFrame(animate);
+    });
+  </script>
+</body>
+</html>
